@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.DS_Store
+.idea/
+.vscode/
+*.egg-info/
+.pytest_cache/
+/tmp/
+candidates.json
+stack.json
