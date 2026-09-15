@@ -1,0 +1,132 @@
+{
+  "skill_name": "stackfit",
+  "description": "Test prompts for the StackFit skill. Fixtures build a small repo first; assertions describe what a good response contains.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "serverless-billing-recommendation",
+      "prompt": "I need to add subscription billing to this app - monthly and annual plans with upgrades. What should I use?",
+      "fixture": "Next.js 14 on Vercel, Prisma + Postgres, Auth.js, Resend, no job runner",
+      "expected_output": "A ranked recommendation grounded in the detected stack, naming the serverless/no-worker constraint and the webhook plus reconciliation work.",
+      "assertions": [
+        "Runs analyze_stack.py before naming any provider",
+        "Identifies the stack as Next.js on Vercel with Prisma/Postgres",
+        "Flags that serverless deployment has no job runner for reconciliation",
+        "Shortlists 5 or fewer candidates and commits to one recommendation",
+        "Mentions webhook endpoint work and idempotent event handling",
+        "Names a Subscription table or equivalent schema change",
+        "Any pricing figure is either sourced or labelled unverified",
+        "States conditions that would change the recommendation"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "existing-vendor-preferred",
+      "prompt": "what's the best way to add file uploads here? users need to upload profile pictures and pdf attachments",
+      "fixture": "Django + Celery + Docker, Postgres, boto3 already in requirements.txt",
+      "expected_output": "Recognises boto3/AWS is already present and weighs extending it against adding a new vendor, rather than recommending a new provider by default.",
+      "assertions": [
+        "Detects boto3 as an existing vendor in the stack",
+        "Explicitly considers using the already-present AWS setup",
+        "Distinguishes plain object storage from media transformation needs",
+        "Mentions presigned URLs or direct-to-storage upload",
+        "Notes that file metadata still needs database records",
+        "Does not recommend adding a new vendor without justifying it over the existing one"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "close-call-honesty",
+      "prompt": "Stripe or Paddle for this? we're a two person team selling to customers in the US and EU",
+      "fixture": "Next.js on Vercel, Prisma + Postgres",
+      "expected_output": "Frames the merchant-of-record question as the deciding factor, and if the scores are close, says so rather than manufacturing a winner.",
+      "assertions": [
+        "Identifies merchant-of-record versus direct processor as the key fork",
+        "Connects EU sales to VAT/tax handling responsibility",
+        "Commits to an answer rather than listing both neutrally",
+        "If the margin is under 5 points, describes it as close and gives a concrete tiebreaker",
+        "Reports whether the winner survives different weight profiles"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "search-build-vs-buy",
+      "prompt": "we need search over about 40k blog posts, mostly title and body matching with some filtering by tag. what should we use?",
+      "fixture": "Django + Postgres",
+      "expected_output": "Seriously evaluates Postgres full-text search given the corpus size and existing Postgres, rather than defaulting to a hosted search vendor.",
+      "assertions": [
+        "Evaluates Postgres full-text search as a real candidate",
+        "Ties the recommendation to the stated corpus size",
+        "Mentions index synchronisation on write paths if recommending an external engine",
+        "Gives a threshold or condition at which the answer would change"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "migration-assessment",
+      "prompt": "how hard would it be to move us off Firebase onto Supabase?",
+      "fixture": "React + Firebase (auth, firestore, storage)",
+      "expected_output": "Treats this as a migration: establishes motivation, maps coupling, assesses data portability, proposes a strategy with rollback points and a risk rating.",
+      "assertions": [
+        "Asks or reasons about why the migration is wanted before planning it",
+        "Maps where Firebase is coupled into the codebase",
+        "Addresses data portability, including auth identity mappings",
+        "Recommends a migration strategy and explains why over the alternatives",
+        "Gives a risk rating and names the point of no return",
+        "Does not present the migration as straightforward if the evidence says otherwise"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "quick-question-proportionate-answer",
+      "prompt": "is clerk overkill for this or should i just keep auth.js?",
+      "fixture": "Next.js on Vercel, Auth.js already working",
+      "expected_output": "A short, direct answer with reasoning and one runner-up - not a full nine-section report for a yes/no question.",
+      "assertions": [
+        "Answers directly rather than producing a full scoring table",
+        "Notes that Auth.js already works and weighs replacement cost",
+        "Response is proportionate to the question's scope",
+        "Names what would justify switching"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "should-not-trigger-implementation",
+      "prompt": "the stripe webhook handler in app/api/webhooks/route.ts is returning 400 on valid events, can you debug it?",
+      "fixture": "Next.js with an existing Stripe integration",
+      "expected_output": "This is a debugging task, not a technology selection. The skill should not run a full evaluation workflow.",
+      "assertions": [
+        "Does not produce a vendor comparison or scoring table",
+        "Engages with the actual debugging problem",
+        "Likely cause of raw body versus parsed body for signature verification is considered"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "dead-sdk-detected",
+      "prompt": "we want to add push notifications, someone suggested a library they used a few years ago - can you check what's current and recommend something?",
+      "fixture": "React Native app",
+      "expected_output": "Probes SDK health rather than relying on recall, and treats a deprecated or archived package as disqualifying rather than scoring it low.",
+      "assertions": [
+        "Runs github_probe.py rather than asserting SDK quality from memory",
+        "Reports last-publish or archived status for the candidates",
+        "Treats a deprecated or archived SDK as a disqualifier, not a low score",
+        "States clearly if GitHub data was unavailable rather than presenting partial data as complete"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "output-economy",
+      "prompt": "quick one - resend or postmark for transactional email in this app?",
+      "fixture": "Next.js on Vercel",
+      "expected_output": "A short, dense answer that leads with the decision and contains no process narration or closing summary.",
+      "assertions": [
+        "First line states the recommendation, not a preamble or restatement of the question",
+        "Does not narrate which scripts were run",
+        "No closing paragraph that repeats the recommendation",
+        "Under roughly 250 words",
+        "Still names a concrete reason tied to the repo"
+      ]
+    }
+  ]
+}
