@@ -243,7 +243,7 @@ A skill that wastes context is a skill that gets less room to think. Two things 
 optimised: what Claude loads, and what you read.
 
 **What Claude loads.** Domain playbooks are split one file per domain, so a payments
-question loads the payments playbook rather than all eleven:
+question loads the payments playbook rather than all fifteen:
 
 | | Before | After |
 |---|---|---|
