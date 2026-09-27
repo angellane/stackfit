@@ -1,0 +1,27 @@
+name: New domain or better coverage
+description: Suggest a playbook for a feature area, or a provider the skill should know about.
+labels: ["domain"]
+body:
+  - type: input
+    id: domain
+    attributes:
+      label: Feature area
+      placeholder: e.g. video calling, tax calculation, OCR
+    validations:
+      required: true
+  - type: textarea
+    id: landscape
+    attributes:
+      label: Realistic candidates
+      description: The providers and open-source options people actually choose between.
+  - type: textarea
+    id: deciding
+    attributes:
+      label: What usually decides it
+      description: The one or two factors that pick the winner, and the hidden work that comes with the integration.
+  - type: checkboxes
+    id: pr
+    attributes:
+      label: Contributing
+      options:
+        - label: I'd be willing to write the playbook (see CONTRIBUTING.md)

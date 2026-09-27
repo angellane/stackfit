@@ -1,0 +1,42 @@
+name: Wrong or weak recommendation
+description: The report missed something in your repo, got a fact wrong, or reached a bad conclusion.
+labels: ["recommendation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        These reports are the most useful thing you can send. Before pasting, remove
+        anything private: project names, internal URLs, customer details.
+  - type: input
+    id: prompt
+    attributes:
+      label: What you asked
+      placeholder: /stackfit add subscription billing
+    validations:
+      required: true
+  - type: textarea
+    id: stack
+    attributes:
+      label: Your stack
+      description: Framework, language, database, where it deploys, relevant vendors already in use.
+      placeholder: Next.js 15 on Vercel, Prisma + Postgres, Clerk, no background worker
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: The report (or the relevant part)
+      render: markdown
+    validations:
+      required: true
+  - type: textarea
+    id: wrong
+    attributes:
+      label: What was wrong, and what should it have said?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: StackFit version
+      description: Run `git -C ~/.claude/skills/stackfit rev-parse --short HEAD`, or give the release tag.

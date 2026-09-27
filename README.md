@@ -344,6 +344,16 @@ something.
 - Pluggable domain playbooks so teams can encode their own vendor policy
 - `--json` output consumable by CI, to flag when a decision's revisit conditions are met
 
+## Contributing
+
+The best contribution needs no code: **if StackFit gets something wrong in your
+repo, [tell us](https://github.com/angellane/stackfit/issues/new?template=wrong-recommendation.yml)**.
+A missed constraint, a stale fact or a margin that didn't add up is exactly what
+improves it. Runs on stacks it hasn't been tested on (Rails, Go, Laravel,
+monorepos) are just as welcome, even when they went fine.
+
+Code, playbooks and fixes: see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
