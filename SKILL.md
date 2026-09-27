@@ -31,6 +31,13 @@ analysed is the argument. The working directory is normally the developer's
 project, so use the skill's own path for the script and `.` for the target.
 Substitute the real path for `$SKILL_DIR`.
 
+Commands are written as `python3`. If that fails - on Windows it is often a Store
+stub that prints nothing or opens a prompt - retry with `python`, then `py -3`,
+and use whichever works for the rest of the session. Write scratch files such as
+`candidates.json` to the system temp directory (`$TMPDIR`, `%TEMP%`), never `/tmp`
+on Windows and never into the developer's repository. If a script still won't run,
+say which one and why in the report; don't silently skip its output.
+
 ### 1. Match depth to the question
 
 - **Quick call** ("which email API?", "is Clerk overkill?") - analyse the stack,
@@ -149,7 +156,7 @@ agree. All ten criteria are oriented so 5 is favourable, so cost, effort and
 lock-in are scored as `cost_efficiency`, `implementation_speed`, `portability`.
 
 ```bash
-python3 "$SKILL_DIR/scripts/score_candidates.py" /tmp/candidates.json --profile default --format markdown
+python3 "$SKILL_DIR/scripts/score_candidates.py" "$TMPDIR/candidates.json" --profile default --format markdown
 ```
 
 Profiles: `default`, `ship-fast`, `cost-sensitive`, `enterprise`, `long-haul`. Use
@@ -160,6 +167,11 @@ Three checks keep the answer honest. Carry their results into the report rather
 than quietly dropping them:
 
 - **Margin** under five points is a tie. Say so and give a concrete tiebreaker.
+  Always report the margin as the number the scorer printed ("12.4 points"),
+  never as an adjective like "clear". If you describe the top two as
+  interchangeable or near-identical, that is a tie whatever the number says -
+  call it one. If scoring didn't run, write "not scored" and why, rather than
+  asserting a margin you didn't measure.
 - **Sensitivity** - if the winner changes under other profiles, state the
   condition: "Stripe if flexibility matters more, Paddle if you don't want to
   handle sales tax."

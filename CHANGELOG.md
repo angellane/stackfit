@@ -3,6 +3,18 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.1] - 2026-09-27
+
+### Fixed
+- Reports must state the scorer's numeric margin, call "interchangeable" options a
+  tie, and say "not scored" when scoring didn't run, instead of asserting a margin.
+- Scripts now run on Windows: fall back from `python3` to `python` / `py -3`, and
+  write scratch files to the system temp directory instead of `/tmp`.
+- Payments playbook: compare fees per transaction at the real price point, since
+  fixed fees dominate low-priced plans.
+- Payments playbook: use OSS rather than the retired VAT MOSS, and distinguish
+  domestic, cross-border B2C and reverse-charged B2B VAT.
+
 ## [1.0.0] - 2026-09-15
 
 Initial release.
