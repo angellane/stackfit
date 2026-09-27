@@ -75,11 +75,11 @@ under a different weight profile, it reports that too.
 
 ```bash
 # available in every project
-git clone https://github.com/YOUR_USERNAME/stackfit.git \
+git clone https://github.com/angellane/stackfit.git \
   ~/.claude/skills/stackfit
 
 # or just this project
-git clone https://github.com/YOUR_USERNAME/stackfit.git \
+git clone https://github.com/angellane/stackfit.git \
   .claude/skills/stackfit
 ```
 
