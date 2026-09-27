@@ -105,6 +105,13 @@ Natural language, in a repository:
 "Write an ADR for the payments decision"
 ```
 
+Or invoke it explicitly in Claude Code with a slash command:
+
+```
+/stackfit add subscription billing
+/stackfit Stripe or Paddle for this repo?
+```
+
 The scripts also run standalone:
 
 ```bash
