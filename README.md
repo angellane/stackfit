@@ -1,24 +1,60 @@
 # StackFit
 
-A [Claude Skill](https://docs.claude.com/en/docs/agents-and-tools/agent-skills/overview)
-that answers "which service should I use for this feature?" — for *your* repository,
-not in the abstract.
+**Ask an AI "Stripe or Paddle?" and you get the same answer whatever your codebase
+looks like. StackFit reads your repo first.**
 
-Ask it to add subscriptions and it reads your codebase first: framework, ORM,
-deployment target, the vendors you already pay for, whether you can even receive a
-webhook. Then it shortlists real candidates, scores them on a weighted rubric,
-tells you what the integration will touch, and commits to an answer.
+A [Claude Code skill](https://docs.claude.com/en/docs/agents-and-tools/agent-skills/overview)
+that picks the service, API or SDK for a feature *in the repository in front of it*:
+it detects your framework, database, deployment target and existing vendors, scores
+real candidates, names the files the integration will touch, and commits to one
+answer.
 
+```bash
+git clone https://github.com/angellane/stackfit.git ~/.claude/skills/stackfit
 ```
-You: I need to add subscription billing to this app.
 
-→ Reads the repo: Next.js 14 on Vercel, Prisma + Postgres, Auth.js, Resend, no job runner
-→ Flags the constraint: serverless with no worker — reconciliation needs a scheduler
-→ Shortlists 3 candidates plus "extend what you already have"
-→ Scores them, checks the result survives different priorities
-→ Reports: 14 files touched, 1 new table, 3 env vars, webhook endpoint missing
-→ Recommends one, and says what would change its mind
-```
+Then, in any project: `/stackfit add subscription billing`
+
+<!-- Demo GIF goes here: ![StackFit demo](docs/demo.gif) -->
+
+## Example
+
+A real run, trimmed. The repo: Next.js 16, Prisma + Postgres, an always-on worker
+process, auth planned but not built, customers almost entirely in Ireland.
+
+> **Use Stripe Billing with hosted Checkout and the Customer Portal — after auth
+> lands.** Stripe wins by **15.4 points** (profile: `cost-sensitive`) and holds
+> under all five weight profiles. Runner-up: Paddle.
+>
+> **Blocker:** `server/platform/current-user.ts` returns a seeded demo user for
+> every request. A subscription needs a real person to attach to.
+>
+> | Option | Score | Status |
+> |---|---|---|
+> | Stripe Billing | 80.6 | Recommended |
+> | Paddle Billing | 65.2 | Runner-up |
+> | Lemon Squeezy | 55.6 | JS SDK has had no activity for 690 days (measured) |
+> | Clerk Billing | — | Excluded: USD-only, no VAT support; this app bills in EUR |
+> | Polar | — | Excluded: SDK repository is archived |
+> | Build it yourself | — | Not scored: billing is a state machine where edge cases cost money |
+>
+> **Why not Paddle?** A merchant of record earns its fee by filing VAT in many
+> countries. With customers in one country, that's one rate on a normal return.
+> At an assumed €12/month, Paddle costs ~€1.03 per payment vs ~€0.51 for Stripe
+> (both pricing pages checked in-session) — about €1,250/year at 200 subscribers.
+>
+> **What it touches:** a `Subscription` model and processed-events table in
+> `prisma/schema.prisma`; a new webhook route with signature checks and
+> idempotency; checkout and portal routes; an entitlement check in
+> `server/platform/`; and `server/monitor/rules.ts`, which would otherwise keep
+> polling a third-party API for users who stopped paying.
+>
+> **What would change this:** selling in several countries (Paddle overtakes
+> Stripe), or a price well under €10/month (fixed fees start to dominate).
+
+Notice what a generic answer can't give you: the blocker, the worker that keeps
+spending money on lapsed users, and a recommendation that flips if the customer
+base changes.
 
 ## Why this exists
 
