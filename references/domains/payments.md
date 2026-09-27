@@ -38,6 +38,12 @@ refunds; a test-mode path in CI.
 Whatever the effort estimate for "add payments", the webhook and state-machine work
 is usually larger than the SDK integration. Say so explicitly.
 
+**Entitlements beyond the request path.** Gating routes is the obvious part. Also
+search for background workers, cron jobs and queued tasks that do paid work per
+user: third-party API calls, LLM usage, polling, sending messages. Each needs the
+same subscription check, or lapsed users keep costing money after they lose access.
+Name the specific files in "what it touches"; a checkout-only plan misses them.
+
 **Serverless caution.** Webhook handlers are fine on serverless, but the
 reconciliation job and dunning retries need scheduling. If `analyze_stack.py`
 reports serverless with no job runner, that gap belongs in the recommendation.

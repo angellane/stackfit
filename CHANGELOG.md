@@ -3,6 +3,12 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+- Payments playbook: check background workers, cron jobs and queued tasks for
+  per-user paid work that needs the same subscription check as routes.
+
 ## [1.0.1] - 2026-09-27
 
 ### Fixed
