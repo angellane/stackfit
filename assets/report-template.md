@@ -6,6 +6,11 @@
 
 **Recommendation:** {Option} · **Effort:** {range} developer-days · **Confidence:** {high | medium | low, and why}
 
+**SDK health:** {package} {version}, last release {date} - {status from github_probe.py, or "not measured" and why}
+
+{If that status is anything but `active`, this line is the first risk the reader
+sees - say what it means for the decision here, not only in the risks table.}
+
 {One paragraph: the decision and the single most important reason it fits this
 repository. Name something concrete - the framework, the runtime, an existing
 vendor. If this paragraph would read the same for any codebase, rewrite it.}
@@ -33,8 +38,9 @@ constraint eliminated options outright, say so here rather than burying it.}
 sensitivity notes it emits. Keep the sensitivity line - a winner that only wins
 under one weight profile is a preference, and the reader is entitled to know.}
 
-{If any option was excluded on a hard requirement, list it with the requirement
-named. Showing the work prevents the same suggestion being re-raised later.}
+{If any option was excluded on a hard requirement or a dead SDK (archived,
+deprecated, dormant), list it with the reason named. Showing the work prevents the
+same suggestion being re-raised later, and these reasons go into the decision note.}
 
 ---
 
@@ -66,6 +72,10 @@ bundle-size cost for client SDKs.}
 | Variable | Purpose | Needed in |
 |---|---|---|
 | {NAME} | {what it does} | {server / client / CI} |
+
+**Outside the request path**
+{Workers, cron jobs and queued tasks that do paid work per user and need the same
+access check as the routes - named by file. Omit only if you looked and found none.}
 
 **Missing infrastructure**
 {Each gap priced as its own piece of work, not folded into the integration.}
@@ -110,3 +120,5 @@ than leaving the decision to calcify or be reopened at random.}
 
 {If any figure here is unverified, say so plainly - which ones, and where to check.
 An unlabelled stale price is worse than no price, because it gets budgeted against.}
+
+Decision recorded: `{path to the decision note}` (Proposed - flips to Accepted when you confirm)

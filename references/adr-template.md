@@ -1,15 +1,57 @@
-# Architecture Decision Records
+# Decision notes and ADRs
 
-An ADR is a short document recording one significant technical decision: what was
-decided, why, what else was considered, and what it commits the team to. The
-audience is a developer eighteen months from now asking "why is this in our stack,
-and can we change it?"
+Two formats for recording a decision. Both have the same job: stop the next person,
+or the next agent session, from reopening "Stripe or Paddle?" from scratch and
+landing on the other answer.
 
-Offer one after a recommendation is accepted. The evaluation already produced
-everything an ADR needs, so it costs almost nothing to write and answers a question
-that otherwise gets re-litigated from scratch.
+- **Decision note** - the default. Written as the last step of every full
+  evaluation. Ten to twenty lines, short enough that an agent reads it before
+  touching that area of the code.
+- **Full ADR** - on request, or when the repo already keeps ADRs. Same content with
+  more context and consequences.
 
-## Conventions
+## Decision note
+
+File: the repo's existing decisions directory, otherwise
+`docs/decisions/YYYY-MM-DD-<topic>.md`.
+
+```markdown
+# {Topic}: {the call, in a short phrase}
+
+- **Status:** Proposed | Accepted | Superseded by {path}
+- **Date:** YYYY-MM-DD
+- **Decided by:** {developer name}, with StackFit
+
+**Decision.** {One or two sentences.}
+
+**Why.** {Two to four reasons tied to this repo - a path, a constraint, a measured
+fact. Nothing that would read the same in another codebase.}
+
+**Rejected.**
+- **{Option}** - {the specific reason it lost, e.g. "SDK repository archived",
+  "USD-only; we bill in EUR", "MoR fee not justified for one-country customer base"}
+- ...
+
+**Revisit when.** {Checkable conditions, from "what would change this".}
+```
+
+The rejected list matters most. Include every option that was shortlisted, scored,
+or excluded on a hard requirement or a dead SDK. An option missing from the list is
+an option the next session will suggest again.
+
+Status starts at `Proposed`, because the skill recommended it and nobody has
+accepted it yet. It flips to `Accepted` when the developer confirms. Never edit an
+accepted note's decision: a later decision writes a new note, and the old one's
+status points to it.
+
+## Full ADR
+
+An ADR records one significant technical decision: what was decided, why, what else
+was considered, and what it commits the team to. The audience is a developer
+eighteen months from now asking "why is this in our stack, and can we change it?"
+The evaluation already produced everything it needs, so it costs little to write.
+
+### Conventions
 
 - File `docs/adr/NNNN-short-title.md`, numbered sequentially, kebab-case title.
   Match the repo's existing convention if there is one - check for a `docs/adr`,
@@ -19,7 +61,7 @@ that otherwise gets re-litigated from scratch.
   than editing history; the superseded record gets a status line pointing forward.
 - Short. One page. If it runs longer, the detail belongs in the linked evaluation.
 
-## Template
+### Template
 
 ```markdown
 # NNNN. {Decision in a short imperative phrase}
@@ -75,7 +117,7 @@ change, a requirement the current choice can't meet, a dependency becoming
 unmaintained. Be specific enough to be checkable.
 ```
 
-## Worked example
+### Worked example
 
 ```markdown
 # 0007. Use Stripe Billing for subscriptions
@@ -145,7 +187,7 @@ flow for failed payments; test-mode fixtures in CI.
   rates or an alternative processor would be worth the migration.
 ```
 
-## Notes on writing these well
+## Notes on writing either well
 
 The temptation is to write the ADR as a justification. Resist it. The record is
 more useful when it admits what was uncertain, names the option that nearly won,

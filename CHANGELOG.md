@@ -8,6 +8,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - Payments playbook: check background workers, cron jobs and queued tasks for
   per-user paid work that needs the same subscription check as routes.
+- Decision notes: full evaluations and migration analyses end by writing a short
+  note to `docs/decisions/` (or the repo's existing ADR directory) with the call,
+  date, who made it, why, every rejected option with its reason, and when to
+  revisit. Status starts `Proposed`. The workflow now reads existing notes first
+  and reopens a decision only when a revisit condition holds.
+- Work outside the request path is now a general impact-analysis step for any
+  feature that gates access, with its own line in the report template.
+
+### Changed
+- SDK health is a gate before scoring rather than one score input: archived and
+  deprecated SDKs are excluded, dormant ones excluded unless nothing better exists,
+  and the winner's SDK status is on the report's opening lines.
+- README example now explains the lapsed-subscriber worker in plain terms for
+  people building their first subscription app.
 
 ## [1.0.1] - 2026-09-27
 
