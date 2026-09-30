@@ -29,6 +29,18 @@ Group by intent rather than listing paths:
 > access for signature verification, which differs from the JSON body parsing used by
 > the existing routes in `app/api/`.
 
+When the feature decides who gets access (billing, plans, auth, quotas), give work
+outside the request path its own group. Routes are where access is checked;
+workers, cron jobs and queue consumers are where money is spent:
+
+> **Background work** - `server/monitor/rules.ts`: polls a third-party API on a
+> schedule for every user with rules configured. Nothing here checks subscription
+> status, so a user who cancels loses the dashboard but keeps costing API calls.
+> Skip users without an active subscription, and stop their schedules when the
+> `customer.subscription.deleted` webhook arrives.
+
+That group becomes its own item in the integration plan, placed before rollout.
+
 Note things that *don't* need to change too, when a developer might reasonably fear
 they do. "Your existing auth stays as-is; the provider's customer record links by
 user ID" prevents an imagined rewrite.

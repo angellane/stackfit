@@ -64,6 +64,12 @@ installed; it cannot see that it's used in one file and raw SQL everywhere else,
 that the "auth" in the manifest is a half-finished prototype. Two well-chosen files
 change recommendations more than any amount of dependency listing.
 
+**Look for decisions already made.** Check `docs/decisions/`, `docs/adr/`,
+`decisions/` and `architecture/` for a record covering this area. If one exists,
+start from it: state what was decided and why, and reopen it only when one of its
+"revisit when" conditions now holds or the developer asks to. Re-deriving a settled
+choice from scratch can land on the other answer for no reason the team would accept.
+
 Four findings eliminate candidates outright:
 
 - **Runtime model.** Serverless and edge hosts cannot run persistent workers or
@@ -114,19 +120,30 @@ surface, an ongoing sync obligation), and which facts are volatile enough to nee
 verifying. Say plainly that you worked without a playbook, so the developer knows
 the landscape came from reasoning rather than a curated list.
 
-### 5. Measure what can be measured
+### 5. Check every SDK is alive - before comparing anything
 
 ```bash
 python3 "$SKILL_DIR/scripts/github_probe.py" probe stripe @paddle/paddle-js
 python3 "$SKILL_DIR/scripts/github_probe.py" find "nextjs stripe subscription" --language TypeScript
 ```
 
-`probe` turns `sdk_quality` and `ecosystem_maturity` into measurements: whether the
-package is deprecated, when it was last published, whether the repo is archived, how
-recently it was pushed. A deprecated or archived SDK is decisive and easy to miss
-from memory. `find` surfaces real implementations worth reading for integration
-patterns - examples, not endorsements, since popular starter repos are often
-outdated or built for a different stack.
+This is the check most comparisons skip, and the one that causes the most rework:
+a well-reasoned recommendation for a library that hasn't shipped a release in two
+years. Recall can't answer it; the probe can. Run it on every shortlisted SDK,
+including the vendor already in the stack, and on the one you recommend even in a
+quick call.
+
+Treat the status as a gate, not just a score input:
+
+- **archived / deprecated** - excluded, with the status as the reason.
+- **dormant** (no activity for two years) - excluded unless nothing better exists;
+  if it survives, that is the headline risk, stated in the report's opening lines.
+- **stale / slowing** - scored down, and named next to the option in the table.
+
+If the winner's SDK is anything other than `active`, say so in the first lines of
+the answer, not in the risks table. `find` surfaces real implementations worth
+reading for integration patterns - examples, not endorsements, since popular
+starter repos are often outdated or built for a different stack.
 
 The probe reads package registries first and treats GitHub as enrichment, because
 the GitHub API allows 60 requests/hour unauthenticated and shared IPs exhaust that
@@ -200,16 +217,37 @@ dependencies, env vars, ordered phases. "Roughly twelve files" is weak;
 "`prisma/schema.prisma` needs a Subscription model and
 `app/api/webhooks/stripe/route.ts` doesn't exist yet" is what makes it credible.
 
+**Look outside the request path.** When the feature decides who gets access -
+billing, plans, auth, quotas - find the background workers, cron jobs and queued
+tasks that do paid work per user: third-party API calls, LLM usage, polling,
+outbound messages. Each needs the same access check as the routes, or users who
+stopped paying keep costing money. Name those files and give them their own step
+in the integration plan; a checkout-only plan misses them.
+
+### 9. Record the decision
+
+The last step of a full evaluation or migration analysis: write a short decision
+note into the repo, so the next session starts from the decision instead of
+re-running it. Use the repo's existing decisions directory if step 2 found one,
+otherwise `docs/decisions/YYYY-MM-DD-<topic>.md`, in the short-note format from
+`references/adr-template.md`: the call, the date, who made it, why, **every
+rejected option with the specific reason it lost**, and when to revisit. The
+rejected options are what stop the question coming back.
+
+Mark it `Proposed` - the developer hasn't accepted anything yet - and name the
+developer from `git config user.name` unless they said otherwise. Tell them the path
+in one line and that it flips to `Accepted` when they confirm. For quick calls,
+offer the note instead of writing it.
+
 ## Report structure
 
-Full evaluations use `assets/report-template.md`. Sections, in order: recommendation
-and headline numbers; detected stack; options table with margin and sensitivity; why
-the winner over the runner-up; what it touches; integration plan; risks including
-lock-in; what would change this recommendation.
+Full evaluations use `assets/report-template.md`. Sections, in order: recommendation,
+SDK health and headline numbers; detected stack; options table with margin and
+sensitivity; why the winner over the runner-up; what it touches; integration plan;
+risks including lock-in; what would change this recommendation.
 
-That last section is the most useful one a year later - it tells the team when to
-revisit rather than re-litigating from scratch. Drop any section that would be
-padding for the question asked.
+That last section is the most useful one a year later, and it becomes the note's
+"revisit when". Drop any section that would be padding for the question asked.
 
 ## Output economy
 
@@ -251,7 +289,7 @@ source or a label. Scores carry evidence.
 
 ## Anti-patterns
 
-Recommending before reading the repo. Eight options with no ranking. Pricing from
+Recommending before reading the repo. Recommending an SDK nobody probed. Eight options with no ranking. Pricing from
 memory stated as current. An architecture the deployment target can't run - a
 persistent worker on Vercel, a websocket server on static hosting. Ignoring a vendor
 already in the manifest. Scoring everything 4/5 so nothing separates. Treating the
@@ -259,9 +297,11 @@ weighted score as the decision rather than as shown reasoning.
 
 ## Follow-ups
 
-Offer at most one, when it fits: an **ADR** (`references/adr-template.md`) after a
-decision; **migration analysis** for "should we move from X to Y"; or starting
-**phase one** of the integration plan.
+Offer at most one, when it fits: a **full ADR** (`references/adr-template.md`) if
+the team keeps them; **migration analysis** for "should we move from X to Y";
+starting **phase one** of the integration plan; or, if the repo has a `CLAUDE.md` or
+`AGENTS.md` that doesn't mention the decisions directory, a one-line pointer so
+future agents read the notes before touching that area.
 
 ## Files
 
@@ -271,7 +311,7 @@ decision; **migration analysis** for "should we move from X to Y"; or starting
 | `references/domains/<domain>.md` | While shortlisting, for that domain only |
 | `references/impact-analysis.md` | Turning scan output into a plan |
 | `references/migration-analysis.md` | Provider-to-provider migrations |
-| `references/adr-template.md` | Writing an ADR |
+| `references/adr-template.md` | Writing the decision note, or a full ADR |
 | `assets/report-template.md` | Writing a full report |
 
 | Script | Purpose |
@@ -281,7 +321,8 @@ decision; **migration analysis** for "should we move from X to Y"; or starting
 | `score_candidates.py` | Weighted scoring, margin, sensitivity, evidence audit |
 | `impact_scan.py` | Touchpoints, infrastructure readiness, effort band |
 
-All are standard-library Python 3.8+ and read-only. The first, third and fourth are
+All are standard-library Python 3.8+ and read-only; the decision note is the only
+file the skill writes. The first, third and fourth are
 offline and deterministic; `github_probe.py` is the only one making network calls,
 and degrades to partial results rather than failing. Run `--help` on any of them. If
 a script fails, read the repo directly and say so - the logic matters more than the

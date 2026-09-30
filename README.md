@@ -5,9 +5,10 @@ looks like. StackFit reads your repo first.**
 
 A [Claude Code skill](https://docs.claude.com/en/docs/agents-and-tools/agent-skills/overview)
 that picks the service, API or SDK for a feature *in the repository in front of it*:
-it detects your framework, database, deployment target and existing vendors, scores
-real candidates, names the files the integration will touch, and commits to one
-answer.
+it detects your framework, database, deployment target and existing vendors, checks
+that each candidate's SDK is still maintained, scores the survivors, names the files
+the integration will touch, commits to one answer, and writes that decision down so
+the next session doesn't reopen it.
 
 ```bash
 git clone https://github.com/angellane/stackfit.git ~/.claude/skills/stackfit
@@ -52,9 +53,25 @@ process, auth planned but not built, customers almost entirely in Ireland.
 > **What would change this:** selling in several countries (Paddle overtakes
 > Stripe), or a price well under €10/month (fixed fees start to dominate).
 
-Notice what a generic answer can't give you: the blocker, the worker that keeps
-spending money on lapsed users, and a recommendation that flips if the customer
-base changes.
+A generic answer gets the comparison right and misses these:
+
+- **Two of the six options have dead or dying SDKs.** Lemon Squeezy's hasn't
+  moved in almost two years and Polar's repository is archived. That's measured
+  before anything is scored, because finding it after you've integrated means
+  starting over.
+- **The app can't take payments yet.** There's no real login, so there's nobody
+  to attach a subscription to.
+- **Cancelling isn't only a checkout problem.** This is the part people shipping
+  their first subscription app tend to miss. When someone stops paying, you lock
+  them out of the paid pages. But this app also has a background worker that polls
+  a third-party API on each user's behalf, and nothing tells it the user has left.
+  Their dashboard disappears while their API bill keeps running, and you pay it.
+  The plan names that file and makes gating it a step of its own.
+
+Runs now end by writing the decision down: a short note in `docs/decisions/` with
+the call, the date, who made it, and why Paddle, Lemon Squeezy, Clerk and Polar
+lost. When an agent or a teammate asks "Stripe or Paddle?" in six months, the note
+answers first, and those reasons are what keep the question closed.
 
 ## Why this exists
 
@@ -93,13 +110,14 @@ Recommendation engines fail in predictable ways. Each of these is designed again
 
 | Failure | Mitigation |
 |---|---|
+| Recommending a dead SDK | Every shortlisted SDK is probed on npm/PyPI and GitHub for deprecation, archival and last release **before** scoring; dead ones are excluded, and the winner's status leads the report |
 | Generic advice dressed up as analysis | Every claim traces to a file path, dependency or constraint found by the analyzer |
 | Confident, stale pricing | Volatile facts must be verified in-session or labelled unverified; the scorer audits for it |
 | Fake precision — "87.3/100" | Margin check declares ties; sensitivity check reports when the winner depends on priorities |
 | Scores as unfalsifiable vibes | Anchored 0–5 definitions per criterion, and an audit that flags scores with no evidence |
 | Underestimating the real work | Effort bands come from an actual touchpoint scan, with missing infrastructure priced separately |
 | Two tools disagreeing | The impact scanner reads manifests as well as paths, so it agrees with the stack analyzer |
-| Recommending a dead SDK | Package registries and GitHub are probed for deprecation, archival and last-publish date |
+| The same question reopened every six months | Each evaluation ends with a short decision note listing every rejected option and why; the next run reads it first |
 
 The scoring engine is built to argue back. If the top two options are within five
 points it says so rather than pretending a decimal decided it. If the winner changes
@@ -248,11 +266,12 @@ question loads the payments playbook rather than all fifteen:
 | | Before | After |
 |---|---|---|
 | Always resident (description) | ~222 | ~222 |
-| On trigger (`SKILL.md`) | ~3,773 | ~3,309 |
+| On trigger (`SKILL.md`) | ~3,773 | ~3,870 |
 | Domain lookup | ~4,556 (all of them) | ~604 (one) |
-| **Typical full evaluation** | **~10,600** | **~5,800** |
+| **Typical full evaluation** | **~10,600** | **~6,400** |
 
-Roughly a 45% reduction, while adding the GitHub probe — [progressive
+Roughly a 40% reduction, while adding the GitHub probe, the SDK health gate and
+decision notes — [progressive
 disclosure](https://docs.claude.com/en/docs/agents-and-tools/agent-skills/overview)
 doing the work it's designed for.
 
@@ -310,8 +329,9 @@ else's environment, works offline. Python 3.8+.
 a recommendation engine that gives different answers on reruns can't be trusted or
 diffed.
 
-**Read-only and secret-safe.** Nothing writes to your repo. Real `.env` files are
-never read; only `.env.example`-style templates, and only key *names*. There's a
+**Read-only and secret-safe.** The scripts never write to your repo. The one file
+the skill adds is the decision note in `docs/decisions/` (or your existing ADR
+directory), marked Proposed until you accept it. Real `.env` files are never read; only `.env.example`-style templates, and only key *names*. There's a
 test asserting no secret value can reach the output.
 
 **Hard requirements exclude rather than score.** An option that can't meet a
