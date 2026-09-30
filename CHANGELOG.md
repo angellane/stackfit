@@ -15,6 +15,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and reopens a decision only when a revisit condition holds.
 - Work outside the request path is now a general impact-analysis step for any
   feature that gates access, with its own line in the report template.
+- `impact_scan.py` finds work outside the request path: schedulers in code
+  (`setInterval`, node-cron, BullMQ, Celery, APScheduler, Sidekiq, Inngest,
+  Trigger.dev, polling loops) and config (`vercel.json` crons, `Procfile`,
+  Cloudflare cron triggers, scheduled GitHub Actions, Kubernetes CronJobs). It
+  follows imports one level to find paid calls and, for `payments` and `auth`,
+  flags jobs with no access check seen and adds them to the effort band. Client
+  polling, browser Web Workers and test files are ignored. Platform crons now
+  count as a job runner.
 
 ### Changed
 - SDK health is a gate before scoring rather than one score input: archived and
