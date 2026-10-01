@@ -20,6 +20,7 @@ Exit codes: 0 ok, 2 bad arguments or path.
 import argparse
 import json
 import os
+import posixpath
 import re
 import signal
 import sys
@@ -494,7 +495,8 @@ INFRA_CHECKS = {
         "background job runner (needed for retries, reconciliation, async work)",
         ["celery", "sidekiq", "resque", "bullmq", "bull", "rq", "dramatiq",
          "inngest", "temporal", "temporalio", "graphile-worker", "agenda",
-         "kombu", "sqs", "faktory", "hangfire", "quartz"],
+         "kombu", "sqs", "faktory", "hangfire", "quartz", "node-cron", "node-schedule",
+         "croner", "apscheduler", "rufus-scheduler"],
     ),
     "migrations": (
         r"(migrations?|alembic|db/migrate|prisma/migrations|drizzle)",
@@ -518,6 +520,220 @@ INFRA_CHECKS = {
         [],
     ),
 }
+
+# Work that runs without a request keeps running after a user loses access, so
+# for features that gate access it needs the same check as the routes. Finding
+# it takes two signals together: something that runs on a schedule or in a
+# worker, and something that spends money per call. Neither alone is enough -
+# plenty of jobs are free, and plenty of paid calls happen inside requests.
+ACCESS_DOMAINS = {"payments", "auth"}
+
+SCHEDULE_PATTERNS = [
+    ("setInterval loop", r"\bsetInterval\s*\("),
+    ("cron schedule", r"\bcron\.schedule\s*\(|\bnew\s+CronJob\s*\(|\bschedule\.scheduleJob\s*\("),
+    ("NestJS schedule", r"@(Cron|Interval)\s*\("),
+    # BullMQ's Worker takes a processor as its second argument; a browser Web
+    # Worker takes an options object, so exclude a literal `{` there.
+    ("queue worker", r"\bnew\s+Worker\s*\(\s*['\"][^'\"]+['\"]\s*,\s*[^{\s]"),
+    ("Celery task", r"@(shared_task|app\.task|celery\.task)\b|\bbeat_schedule\b"),
+    ("APScheduler", r"\b(BlockingScheduler|BackgroundScheduler|AsyncIOScheduler)\s*\(|\.add_job\s*\("),
+    ("schedule library", r"\bschedule\.every\s*\("),
+    ("Sidekiq / ActiveJob", r"\binclude\s+Sidekiq::(Job|Worker)\b|<\s*(ApplicationJob|ActiveJob::Base)\b"),
+    ("Inngest function", r"\binngest\.createFunction\s*\("),
+    ("Trigger.dev task", r"\b(schedules\.)?task\s*\(\s*\{\s*id\s*:"),
+    ("Workers cron handler", r"\basync\s+scheduled\s*\("),
+    ("ticker / cron loop", r"\btime\.NewTicker\s*\(|\bcron\.New\s*\("),
+    ("polling loop", r"\bwhile\s*\(?\s*(True|true)\s*\)?\s*[:{][\s\S]{0,800}?\bsleep\s*\("),
+]
+SCHEDULE_RES = [(label, re.compile(pattern)) for label, pattern in SCHEDULE_PATTERNS]
+
+# setInterval in a UI component is client polling, not a job.
+CLIENT_EXTS = {".tsx", ".jsx", ".vue", ".svelte"}
+
+OUTBOUND_PATTERNS = [
+    ("HTTP request", r"\bfetch\s*\(|\baxios\b|\bgot\s*\(|\brequests\.(get|post|put|patch|request)\s*\("
+                     r"|\bhttpx\.|\baiohttp\b|\burllib\.request\b|\bhttp\.(Get|Post|NewRequest)\b"
+                     r"|\bNet::HTTP\b|\bFaraday\b|\bHTTParty\b"),
+    ("OpenAI", r"\bopenai\b"),
+    ("Anthropic", r"\banthropic\b"),
+    ("Google AI", r"@google/genai|@google/generative-ai|google\.generativeai|google\.genai|\bvertexai\b"),
+    ("AI SDK", r"\b(generateText|streamText|generateObject|streamObject)\s*\("),
+    ("Twilio", r"\btwilio\b"),
+    ("email API", r"\b(resend|sendgrid|postmark|mailgun|nodemailer)\b"),
+    ("AWS SDK", r"@aws-sdk/|\bboto3\b"),
+]
+OUTBOUND_RES = [(label, re.compile(pattern, re.I)) for label, pattern in OUTBOUND_PATTERNS]
+
+# Presence of these words is weak evidence of a real check; their absence is
+# the strong signal, which is why the output says "none seen" rather than "ok".
+ACCESS_CHECK_RE = re.compile(
+    r"\b(subscriptions?|subscribed|entitle\w*|isPro|is_pro|isPremium|is_premium|hasAccess|"
+    r"has_access|canAccess|can_access|planLimit|plan_limit|billing|trial\w*|"
+    r"active_subscription|plan(Id|_id|Status|_status))\b")
+
+WORKER_PATH_RE = re.compile(
+    r"(^|/)(workers?|jobs?|crons?|schedulers?|tasks|queues?|consumers?)(/|\.[a-z]+$)", re.I)
+TEST_PATH_RE = re.compile(INFRA_CHECKS["tests"][0], re.I)
+
+JS_IMPORT_RE = re.compile(
+    r"""(?:\bfrom\s+|\brequire\s*\(\s*|\bimport\s*\(\s*)['"]((?:\.{1,2}|@|~)/[^'"]+)['"]""")
+PY_IMPORT_RE = re.compile(r"^\s*from\s+(\.*)([\w.]*)\s+import\b", re.M)
+JS_EXTS = [".ts", ".tsx", ".js", ".mjs", ".cjs", ".jsx"]
+BACKGROUND_CAP = 20
+
+
+def _resolve_import(rel, spec, code_set, python=False):
+    """Resolve one import to a repo file, or None. Relative, `@/` and `~/` only."""
+    here = posixpath.dirname(rel)
+    if python:
+        dots, module = spec
+        parts = [p for p in module.split(".") if p]
+        if dots:
+            base = here
+            for _ in range(len(dots) - 1):
+                base = posixpath.dirname(base)
+        else:
+            base = ""
+        stem = posixpath.join(base, *parts) if parts else base
+        for candidate in (stem + ".py", posixpath.join(stem, "__init__.py")):
+            candidate = candidate.lstrip("/")
+            if candidate in code_set:
+                return candidate
+        return None
+    if spec[:2] in ("@/", "~/"):
+        bases = [spec[2:], "src/" + spec[2:]]
+    else:
+        joined = posixpath.normpath(posixpath.join(here, spec))
+        if joined.startswith(".."):
+            return None
+        bases = [joined]
+    for base in bases:
+        stems = [base]
+        root_ext = posixpath.splitext(base)
+        if root_ext[1] in JS_EXTS:
+            stems.append(root_ext[0])  # TS ESM imports name the compiled .js file
+        for stem in stems:
+            for candidate in [stem] + [stem + e for e in JS_EXTS] + [stem + "/index" + e for e in JS_EXTS]:
+                if candidate in code_set:
+                    return candidate
+    return None
+
+
+def _imports(rel, content, code_set):
+    python = rel.endswith(".py")
+    if python:
+        specs = [(m.group(1), m.group(2)) for m in PY_IMPORT_RE.finditer(content)]
+    else:
+        specs = [m.group(1) for m in JS_IMPORT_RE.finditer(content)]
+    found = []
+    for spec in specs:
+        target = _resolve_import(rel, spec, code_set, python=python)
+        if target and target != rel and target not in found:
+            found.append(target)
+    return found
+
+
+def _config_schedules(root, all_files, code_set):
+    """Schedules declared in config rather than code: [(source, label, handler)]."""
+    noext = {}
+    for rel in sorted(code_set):
+        noext.setdefault(os.path.splitext(rel)[0], rel)
+    found = []
+    for rel in all_files:
+        base = os.path.basename(rel)
+        abs_path = os.path.join(root, rel.replace("/", os.sep))
+        if base == "vercel.json":
+            try:
+                crons = json.loads(read_code(abs_path) or "{}").get("crons") or []
+            except (ValueError, AttributeError):
+                crons = []
+            for cron in crons:
+                if not isinstance(cron, dict) or not cron.get("path"):
+                    continue
+                route = cron["path"].split("?")[0].strip("/")
+                handler = next((f for key, f in sorted(noext.items())
+                                if key == route or key.endswith("/" + route)
+                                or key.endswith(route + "/route") or key.endswith(route + "/index")),
+                               None)
+                found.append((rel, "Vercel cron {} ({})".format(cron["path"], cron.get("schedule", "?")),
+                              handler))
+        elif base == "Procfile":
+            for line in read_code(abs_path).splitlines():
+                match = re.match(r"^([\w-]+)\s*:\s*(.+)$", line.strip())
+                if not match or match.group(1) in ("web", "release"):
+                    continue
+                handler = None
+                for token in match.group(2).split():
+                    token = token.strip("'\"").lstrip("./")
+                    stem = os.path.splitext(token)[0]
+                    for candidate in (token, stem, re.sub(r"^(dist|build|lib)/", "src/", stem),
+                                      re.sub(r"^(dist|build|lib)/", "", stem)):
+                        handler = candidate if candidate in code_set else noext.get(candidate)
+                        if handler:
+                            break
+                    if handler:
+                        break
+                found.append((rel, "Procfile process '{}'".format(match.group(1)), handler))
+        elif base in ("wrangler.toml", "wrangler.jsonc", "wrangler.json"):
+            if re.search(r"\bcrons\"?\s*[=:]", read_code(abs_path)):
+                found.append((rel, "Cloudflare cron trigger", None))
+        elif re.search(r"\.ya?ml$", base):
+            text = read_code(abs_path)
+            if (rel.startswith(".github/workflows/") and "cron" in text
+                    and re.search(r"^\s*schedule\s*:", text, re.M)):
+                found.append((rel, "GitHub Actions schedule", None))
+            if re.search(r"^\s*kind\s*:\s*CronJob\b", text, re.M):
+                found.append((rel, "Kubernetes CronJob", None))
+    return found
+
+
+def _outbound(content):
+    return [label for label, regex in OUTBOUND_RES if regex.search(content)]
+
+
+def find_background_work(root, all_files, code_files, candidates):
+    """Build the list of work outside the request path.
+
+    `candidates` maps a code file to the schedule triggers found in it during the
+    main scan. Config-declared schedules are merged in, then each entry's own
+    content and its direct imports are checked for paid calls and access checks.
+    """
+    code_set = set(code_files)
+    entries = {rel: {"triggers": list(triggers), "config_only": False}
+               for rel, triggers in candidates.items()}
+    config = _config_schedules(root, all_files, code_set)
+    for source, label, handler in config:
+        if handler:
+            entry = entries.setdefault(handler, {"triggers": [], "config_only": False})
+            entry["triggers"].append(label + " in " + source)
+        else:
+            entry = entries.setdefault(source, {"triggers": [], "config_only": True})
+            entry["triggers"].append(label)
+
+    results = []
+    for rel in sorted(entries):
+        entry = entries[rel]
+        if entry["config_only"]:
+            results.append({"file": rel, "triggers": entry["triggers"], "calls": [],
+                            "access_check_seen": None,
+                            "note": "schedule declared here; open it to find what runs"})
+            continue
+        content = read_code(os.path.join(root, rel.replace("/", os.sep)))
+        calls = _outbound(content)
+        access = bool(ACCESS_CHECK_RE.search(content))
+        for dep in _imports(rel, content, code_set):
+            dep_content = read_code(os.path.join(root, dep.replace("/", os.sep)))
+            calls += ["{} (via {})".format(label, dep) for label in _outbound(dep_content)
+                      if label not in calls]
+            access = access or bool(ACCESS_CHECK_RE.search(dep_content))
+        # A file that is only in a worker-ish folder, with no schedule and no
+        # paid call, is noise: types, constants, fixtures.
+        if entry["triggers"] == ["in a worker/job/cron path"] and not calls:
+            continue
+        results.append({"file": rel, "triggers": entry["triggers"], "calls": calls,
+                        "access_check_seen": access, "note": None})
+    return results, config
+
 
 MANIFEST_NAMES = {
     "package.json", "requirements.txt", "requirements-dev.txt", "pyproject.toml",
@@ -597,6 +813,7 @@ def scan(root, domain_key, max_files=8000, per_role_cap=12):
 
     hits = {role: [] for role in domain["roles"]}
     touched = set()
+    schedule_candidates = {}
     for rel in code_files:
         abs_path = os.path.join(root, rel.replace("/", os.sep))
         content = None
@@ -618,6 +835,26 @@ def scan(root, domain_key, max_files=8000, per_role_cap=12):
                 hits[role].append(rel)
                 touched.add(rel)
 
+        if TEST_PATH_RE.search(rel):
+            continue
+        if content is None:
+            content = read_code(abs_path)
+        client = (os.path.splitext(rel)[1].lower() in CLIENT_EXTS
+                  or re.search(r"^\s*['\"]use client['\"]", content, re.M))
+        triggers = [label for label, regex in SCHEDULE_RES
+                    if regex.search(content) and not (client and label == "setInterval loop")]
+        if not triggers and WORKER_PATH_RE.search(rel):
+            triggers = ["in a worker/job/cron path"]
+        if triggers:
+            schedule_candidates[rel] = triggers
+
+    background, config_schedules = find_background_work(
+        root, all_files, code_files, schedule_candidates)
+    gates_access = domain_key in ACCESS_DOMAINS
+    unchecked = [e for e in background if e["calls"] and e["access_check_seen"] is False]
+    if gates_access:
+        touched.update(e["file"] for e in background if e["calls"])
+
     manifest_text = read_manifest_text(root, all_files)
     infra = {}
     for key, (pattern, description, markers) in INFRA_CHECKS.items():
@@ -634,6 +871,14 @@ def scan(root, domain_key, max_files=8000, per_role_cap=12):
             "examples": examples[:3],
             "from_dependency_only": bool(dep_hits) and not matches,
         }
+
+    # A platform scheduler is a job runner even with no queue library or folder.
+    platform_crons = [source for source, label, _ in config_schedules
+                      if label.startswith(("Vercel cron", "Cloudflare cron", "Kubernetes CronJob"))]
+    jobs = infra["background_jobs"]
+    if platform_crons and not jobs["present"]:
+        jobs["present"] = True
+        jobs["examples"] = sorted(set(platform_crons))[:3]
 
     env_keys = set()
     for rel in all_files:
@@ -672,6 +917,10 @@ def scan(root, domain_key, max_files=8000, per_role_cap=12):
     if not infra["tests"]["present"]:
         penalties.append("no test suite: verification is manual, so allow rework time")
         penalty_days += 1.0
+    if gates_access and unchecked:
+        penalties.append("{} background job(s) make outbound calls with no access check seen: "
+                         "each needs gating".format(len(unchecked)))
+        penalty_days += min(2.0, 0.5 * len(unchecked))
 
     effort = {
         "low_days": round(low * surface_factor + penalty_days, 1),
@@ -701,6 +950,15 @@ def scan(root, domain_key, max_files=8000, per_role_cap=12):
             for role, paths in sorted(hits.items())
         },
         "total_files_touched": touch_count,
+        "background_work": {
+            "count": len(background),
+            "entries": background[:BACKGROUND_CAP],
+            "truncated": len(background) > BACKGROUND_CAP,
+            "unchecked_paid_work": [e["file"] for e in unchecked] if gates_access else [],
+            "note": ("Work that runs without a request. For features that gate access, "
+                     "each entry making paid calls needs the same check as the routes. "
+                     "Imports are followed one level; read the files to confirm."),
+        },
         "infrastructure": infra,
         "required_capabilities": domain["needs"],
         "existing_env_keys": sorted(env_keys),
@@ -730,6 +988,22 @@ def render_text(result):
     if not any_hits:
         add("  No matching files. Either this is greenfield for this domain, or the code")
         add("  lives somewhere the patterns miss - confirm by reading the repo directly.")
+    background = result["background_work"]
+    if background["entries"]:
+        add("")
+        add("WORK OUTSIDE THE REQUEST PATH ({} found)".format(background["count"]))
+        unchecked = set(background["unchecked_paid_work"])
+        for entry in background["entries"]:
+            add("  {}".format(entry["file"]))
+            add("      runs: {}".format("; ".join(entry["triggers"])))
+            if entry["note"]:
+                add("      " + entry["note"])
+                continue
+            add("      calls: {}".format(", ".join(entry["calls"]) or "no outbound calls seen"))
+            if entry["file"] in unchecked:
+                add("      ! no access check seen - users who lose access may keep costing money")
+        if background["truncated"]:
+            add("  ... and {} more".format(background["count"] - len(background["entries"])))
     add("")
     add("INFRASTRUCTURE READINESS")
     for key, data in sorted(result["infrastructure"].items()):

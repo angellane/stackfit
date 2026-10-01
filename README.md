@@ -104,6 +104,38 @@ The reasoning is domain-agnostic throughout: reading the repo, framing the decis
 weighing the existing vendor and build-versus-buy, scoring, and blast radius apply
 to a maps API exactly as they do to billing.
 
+## How deep the repo read goes
+
+Deeper than `package.json` and imports, but not a full call graph.
+
+- **Manifests and deploy config** — dependencies across ten languages, the host
+  (Vercel, Cloudflare, Docker, a `Procfile`) and whether it can run a long-lived
+  process.
+- **File paths and contents** — pattern matching finds the files each role
+  touches: user models, webhook handlers, access checks, API routes.
+- **Work outside the request path** — schedulers in code (`setInterval`,
+  `node-cron`, BullMQ workers, Celery, APScheduler, Sidekiq, Inngest, Trigger.dev)
+  and in config (`vercel.json` crons, `Procfile` processes, Cloudflare cron
+  triggers, scheduled GitHub Actions, Kubernetes CronJobs). For each one it follows
+  imports one level to find paid calls: HTTP clients, OpenAI, Anthropic, Twilio,
+  email APIs, AWS. For billing and auth, a job that makes paid calls with no
+  access check in sight gets flagged:
+
+```
+WORK OUTSIDE THE REQUEST PATH (2 found)
+  worker/digest.ts
+      runs: setInterval loop
+      calls: OpenAI
+  worker/index.ts
+      runs: setInterval loop
+      calls: HTTP request (via server/monitor/rules.ts)
+      ! no access check seen - users who lose access may keep costing money
+```
+
+It's pattern matching, so it can miss things. A paid call two imports deep, or a
+scheduler it doesn't recognise, won't show up. That's why the skill then has Claude
+open the flagged files and read around them before writing the plan.
+
 ## What makes the output trustworthy
 
 Recommendation engines fail in predictable ways. Each of these is designed against:
@@ -299,7 +331,7 @@ stackfit/
 │   ├── migration-analysis.md # provider-to-provider migration assessment
 │   └── adr-template.md       # ADR format and worked example
 ├── assets/report-template.md
-└── tests/test_scripts.py     # 80 tests
+└── tests/test_scripts.py     # 89 tests
 ```
 
 Claude loads `SKILL.md` when the skill triggers and pulls in reference files only
@@ -349,7 +381,7 @@ to fall back to manual analysis if a script fails.
 python3 -m unittest discover -s tests -v
 ```
 
-80 tests covering stack detection across JavaScript and Python fixtures, scoring
+89 tests covering stack detection across JavaScript and Python fixtures, scoring
 arithmetic against hand-checked values, validation and error paths, CLI exit codes,
 determinism, secret safety, and skill-format integrity (frontmatter limits,
 `SKILL.md` length, referenced files existing).

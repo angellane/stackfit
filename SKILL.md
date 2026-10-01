@@ -220,7 +220,12 @@ dependencies, env vars, ordered phases. "Roughly twelve files" is weak;
 **Look outside the request path.** When the feature decides who gets access -
 billing, plans, auth, quotas - find the background workers, cron jobs and queued
 tasks that do paid work per user: third-party API calls, LLM usage, polling,
-outbound messages. Each needs the same access check as the routes, or users who
+outbound messages. The scan's "work outside the request path" section lists
+schedulers in code and config (Vercel, Procfile, Cloudflare, GitHub Actions,
+Kubernetes), follows imports one level for paid calls, and flags jobs with no
+access check seen. Treat it as a starting list: open each flagged file, and look
+for jobs it can't see, such as imports two levels deep or a scheduler it doesn't
+recognise. Each needs the same access check as the routes, or users who
 stopped paying keep costing money. Name those files and give them their own step
 in the integration plan; a checkout-only plan misses them.
 

@@ -454,6 +454,118 @@ class TestImpactScan(TempRepoTest):
         self.assertEqual(first, second)
 
 
+def make_worker_repo(root):
+    """The README case: a worker polling a paid API for users who stopped paying."""
+    make_next_repo(root)
+    write(root, "worker/index.ts",
+          'import { runRules } from "../server/monitor/rules";\n'
+          "setInterval(runRules, 60_000);\n")
+    write(root, "server/monitor/rules.ts",
+          "export async function runRules() {\n"
+          "  for (const u of users) await fetch(`https://api.vendor.com/check?u=${u.id}`);\n}\n")
+    write(root, "worker/digest.ts",
+          'import OpenAI from "openai";\n'
+          "setInterval(async () => {\n"
+          "  const users = await db.user.findMany({ where: { subscription: { status: 'active' } } });\n"
+          "  await new OpenAI().chat.completions.create({});\n}, 3600_000);\n")
+    write(root, "app/components/Clock.tsx",
+          '"use client";\nsetInterval(() => fetch("/api/time"), 1000);\n')
+    write(root, "lib/web.ts", "const w = new Worker('w.js', { type: 'module' }); fetch('/x');\n")
+    write(root, "jobs/types.ts", "export type Job = { id: string };\n")
+    write(root, "tests/worker.test.ts", "setInterval(() => fetch('/x'), 1);\n")
+    return root
+
+
+class TestBackgroundWork(TempRepoTest):
+    def entries(self, result):
+        return {e["file"]: e for e in result["background_work"]["entries"]}
+
+    def test_worker_calling_paid_api_through_an_import_is_flagged(self):
+        result = impact_scan.scan(make_worker_repo(self.tmp), "payments")
+        entries = self.entries(result)
+        worker = entries["worker/index.ts"]
+        self.assertIn("setInterval loop", worker["triggers"])
+        self.assertIn("HTTP request (via server/monitor/rules.ts)", worker["calls"])
+        self.assertFalse(worker["access_check_seen"])
+        self.assertEqual(result["background_work"]["unchecked_paid_work"], ["worker/index.ts"])
+        self.assertIn("no access check seen", impact_scan.render_text(result))
+
+    def test_gated_job_is_listed_but_not_flagged(self):
+        entries = self.entries(impact_scan.scan(make_worker_repo(self.tmp), "payments"))
+        self.assertTrue(entries["worker/digest.ts"]["access_check_seen"])
+        self.assertIn("OpenAI", entries["worker/digest.ts"]["calls"])
+
+    def test_client_polling_web_workers_tests_and_type_files_are_ignored(self):
+        entries = self.entries(impact_scan.scan(make_worker_repo(self.tmp), "payments"))
+        for noise in ("app/components/Clock.tsx", "lib/web.ts", "jobs/types.ts",
+                      "tests/worker.test.ts"):
+            self.assertNotIn(noise, entries)
+
+    def test_unchecked_work_adds_to_touched_files_and_effort(self):
+        plain = impact_scan.scan(make_next_repo(os.path.join(self.tmp, "a")), "payments")
+        worker = impact_scan.scan(make_worker_repo(os.path.join(self.tmp, "b")), "payments")
+
+        def gating_penalties(result):
+            return [p for p in result["effort_estimate"]["inputs"]["penalties"]
+                    if "no access check seen" in p]
+
+        self.assertEqual(gating_penalties(plain), [])
+        self.assertEqual(len(gating_penalties(worker)), 1)
+        self.assertIn("1 background job(s)", gating_penalties(worker)[0])
+        self.assertEqual(plain["background_work"]["entries"], [])
+        # Both jobs make paid calls, so both count as files the integration touches.
+        search = impact_scan.scan(os.path.join(self.tmp, "b"), "search")
+        self.assertNotIn("worker/index.ts", search["background_work"]["unchecked_paid_work"])
+
+    def test_only_access_domains_flag_it(self):
+        result = impact_scan.scan(make_worker_repo(self.tmp), "search")
+        self.assertTrue(result["background_work"]["entries"], "still listed for context")
+        self.assertEqual(result["background_work"]["unchecked_paid_work"], [])
+        self.assertFalse(any("access check" in p
+                             for p in result["effort_estimate"]["inputs"]["penalties"]))
+
+    def test_vercel_cron_resolves_to_its_route_and_counts_as_a_job_runner(self):
+        make_next_repo(self.tmp)
+        write(self.tmp, "vercel.json",
+              '{"crons":[{"path":"/api/cron/sync","schedule":"0 * * * *"}]}')
+        write(self.tmp, "app/api/cron/sync/route.ts",
+              'import { sync } from "@/lib/sync";\nexport async function GET() { await sync(); }\n')
+        write(self.tmp, "lib/sync.ts", 'import twilio from "twilio";\nexport async function sync() {}\n')
+        result = impact_scan.scan(self.tmp, "payments")
+        route = self.entries(result)["app/api/cron/sync/route.ts"]
+        self.assertIn("Vercel cron /api/cron/sync (0 * * * *) in vercel.json", route["triggers"])
+        self.assertIn("Twilio (via lib/sync.ts)", route["calls"])
+        self.assertTrue(result["infrastructure"]["background_jobs"]["present"])
+
+    def test_procfile_github_and_kubernetes_schedules(self):
+        write(self.tmp, "Procfile", "web: node server.js\nworker: node dist/worker.js\n")
+        write(self.tmp, "src/worker.ts", "import axios from 'axios';\n")
+        write(self.tmp, ".github/workflows/nightly.yml",
+              "on:\n  schedule:\n    - cron: '0 3 * * *'\n")
+        write(self.tmp, "deploy/cron.yaml", "apiVersion: batch/v1\nkind: CronJob\n")
+        entries = self.entries(impact_scan.scan(self.tmp, "payments"))
+        self.assertIn("Procfile process 'worker' in Procfile", entries["src/worker.ts"]["triggers"])
+        self.assertEqual(entries[".github/workflows/nightly.yml"]["triggers"],
+                         ["GitHub Actions schedule"])
+        self.assertIsNone(entries[".github/workflows/nightly.yml"]["access_check_seen"])
+        self.assertEqual(entries["deploy/cron.yaml"]["triggers"], ["Kubernetes CronJob"])
+
+    def test_python_celery_task_with_relative_import(self):
+        write(self.tmp, "billing/tasks.py",
+              "from celery import shared_task\nfrom .client import poll\n"
+              "@shared_task\ndef nightly():\n    poll()\n")
+        write(self.tmp, "billing/client.py", "import requests\ndef poll():\n    requests.get('https://x')\n")
+        entry = self.entries(impact_scan.scan(self.tmp, "payments"))["billing/tasks.py"]
+        self.assertIn("Celery task", entry["triggers"])
+        self.assertIn("HTTP request (via billing/client.py)", entry["calls"])
+
+    def test_bullmq_worker_detected(self):
+        write(self.tmp, "src/queue.ts",
+              "import { Worker } from 'bullmq';\nnew Worker('emails', async (job) => fetch(job.data.url));\n")
+        entries = self.entries(impact_scan.scan(self.tmp, "payments"))
+        self.assertIn("queue worker", entries["src/queue.ts"]["triggers"])
+
+
 # ----------------------------------------------------------------------- CLI
 
 class TestCommandLine(TempRepoTest):
